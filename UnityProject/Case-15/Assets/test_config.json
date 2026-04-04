@@ -1,0 +1,9 @@
+{
+  "src": "tiles.xml",
+  "model": {
+    "type": "adjacent"
+  },
+  "width": 10,
+  "height": 10,
+  "dest": "output.csv"
+}

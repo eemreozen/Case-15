@@ -1,0 +1,54 @@
+<set>
+  <tiles>
+    <tile name="Assets/Prefabs/Ground" weight="10.0"/>
+    <tile name="Assets/Prefabs/Wall" weight="2.0"/>
+    <tile name="Assets/Prefabs/Glass" weight="0.5"/>
+    <tile name="Assets/Prefabs/Door" weight="0.2"/>
+  </tiles>
+  <neighbors>
+    <!-- HORIZONTAL RULES (Left to Right) -->
+    <neighbor left="Assets/Prefabs/Ground" right="Assets/Prefabs/Ground"/>
+    
+    <!-- Ground touching Wall -->
+    <neighbor left="Assets/Prefabs/Ground" right="Assets/Prefabs/Wall"/>
+    <neighbor left="Assets/Prefabs/Wall" right="Assets/Prefabs/Ground"/>
+
+    <!-- Door touching Ground -->
+    <neighbor left="Assets/Prefabs/Ground" right="Assets/Prefabs/Door"/>
+    <neighbor left="Assets/Prefabs/Door" right="Assets/Prefabs/Ground"/>
+    
+    <!-- Door touching Wall -->
+    <neighbor left="Assets/Prefabs/Wall" right="Assets/Prefabs/Door"/>
+    <neighbor left="Assets/Prefabs/Door" right="Assets/Prefabs/Wall"/>
+
+    <!-- Wall touching Wall -->
+    <neighbor left="Assets/Prefabs/Wall" right="Assets/Prefabs/Wall"/>
+    
+    <!-- Glass ONLY touches Wall horizontally -->
+    <neighbor left="Assets/Prefabs/Wall" right="Assets/Prefabs/Glass"/>
+    <neighbor left="Assets/Prefabs/Glass" right="Assets/Prefabs/Wall"/>
+
+
+    <!-- VERTICAL RULES (Top to Bottom) -->
+    <neighbor top="Assets/Prefabs/Ground" bottom="Assets/Prefabs/Ground"/>
+    
+    <!-- Ground touching Wall -->
+    <neighbor top="Assets/Prefabs/Wall" bottom="Assets/Prefabs/Ground"/>
+    <neighbor top="Assets/Prefabs/Ground" bottom="Assets/Prefabs/Wall"/>
+    
+    <!-- Door touching Ground -->
+    <neighbor top="Assets/Prefabs/Ground" bottom="Assets/Prefabs/Door"/>
+    <neighbor top="Assets/Prefabs/Door" bottom="Assets/Prefabs/Ground"/>
+
+    <!-- Door touching Wall -->
+    <neighbor top="Assets/Prefabs/Wall" bottom="Assets/Prefabs/Door"/>
+    <neighbor top="Assets/Prefabs/Door" bottom="Assets/Prefabs/Wall"/>
+    
+    <!-- Wall touching Wall -->
+    <neighbor top="Assets/Prefabs/Wall" bottom="Assets/Prefabs/Wall"/>
+    
+    <!-- Glass ONLY touches Wall vertically -->
+    <neighbor top="Assets/Prefabs/Wall" bottom="Assets/Prefabs/Glass"/>
+    <neighbor top="Assets/Prefabs/Glass" bottom="Assets/Prefabs/Wall"/>
+  </neighbors>
+</set>
