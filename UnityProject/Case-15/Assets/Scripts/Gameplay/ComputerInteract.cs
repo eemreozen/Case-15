@@ -37,6 +37,7 @@ public class ComputerInteract : MonoBehaviour
         if (other.CompareTag("Player"))
         {
             isPlayerNearby = true;
+            Debug.Log("SSSSSSSSSSSSSSS");
         }
     }
 

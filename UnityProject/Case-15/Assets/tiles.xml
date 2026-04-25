@@ -50,5 +50,8 @@
     <!-- Glass ONLY touches Wall vertically -->
     <neighbor top="Assets/Prefabs/Wall" bottom="Assets/Prefabs/Glass"/>
     <neighbor top="Assets/Prefabs/Glass" bottom="Assets/Prefabs/Wall"/>
+
+	<neighbor left="Assets/Prefabs/Door" right="Assets/Prefabs/Ground"/>
+	<neighbor top="Assets/Prefabs/Door" bottom="Assets/Prefabs/Ground"/>
   </neighbors>
 </set>

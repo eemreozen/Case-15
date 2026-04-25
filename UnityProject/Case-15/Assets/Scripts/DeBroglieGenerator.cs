@@ -6,35 +6,67 @@ using DeBroglie;
 using DeBroglie.Models;
 using DeBroglie.Topo;
 using System.Linq;
+using Unity.Mathematics.Geometry;
+
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
+
+// LLM'den gelecek talimat seti için seri ilan edilebilir sınıflar
+[System.Serializable]
+public class LLMLevelPlan
+{
+    public List<LLMRoomRequest> rooms = new List<LLMRoomRequest>();
+}
+
+[System.Serializable]
+public class LLMRoomRequest
+{
+    public string id;           // Odanın adı (Mutfak, Koridor vb.)
+    public int width;           // Odanın genişliği
+    public int height;          // Odanın yüksekliği
+    public string connectTo;    // Hangi odaya bağlanacağı
+    public string direction;    // Bağlantı yönü: "Up", "Down", "Left", "Right"
+    public int corridorLen;     // Bağlantı yolu (koridor) uzunluğu
+}
+
+[System.Serializable]
+public enum PropPlacementType
+{
+    WallEdge,   // Duvar kenarına yaslanmalı (TV, Kitaplık, Mutfak Tezgahı)
+    Center,     // Odanın ortalarında serbest (Sehpa, Masa)
+    Corner      // Sadece köşelere (Saksı, Lambader)
+}
+
+[System.Serializable]
+public class PropDefinition
+{
+    public string propName; // Prefab'ın adı (örn: "TV", "Sofa")
+    public bool isDirectional;
+    public PropPlacementType placementType;
+    public bool faceInward; // İçeriye doğru mu bakmalı? (TV ve Koltuk için true)
+}
+
+[System.Serializable]
+public class RoomPropPool
+{
+    public string roomID; // "Lobby", "Office" vb.
+    public List<PropDefinition> propsToSpawn;
+}
+
 
 public class DeBroglieGenerator : MonoBehaviour
 {
     public string tilesXmlPath = "Assets/tiles.xml";
 
-    [Header("DFS Mode Settings")]
-    public int dfsMinGroundWidth = 10;
-    public int dfsMaxGroundWidth = 15;
-    public int dfsMinGroundHeight = 5;
-    public int dfsMaxGroundHeight = 10;
-    public int dfsMaxRooms = 10;
-    public int dfsMinCorridor = 2;
-    public int dfsMaxCorridor = 5;
 
-    [Header("Hub Mode Settings")]
-    public int hubMinMainWidth = 8;
-    public int hubMaxMainWidth = 14;
-    public int hubMinMainHeight = 8;
-    public int hubMaxMainHeight = 14;
-    public int hubMaxRooms = 10;
-    public int hubMinWidth = 4;
-    public int hubMaxWidth = 8;
-    public int hubMinHeight = 4;
-    public int hubMaxHeight = 8;
-    public int hubMinCorridor = 2;
-    public int hubMaxCorridor = 5;
+    [Header("Prop Settings")]
+    public List<RoomPropPool> roomPropPools;
+
+    [Header("LLM Stability Settings")]
+    // LLM'den gelen planı inspector üzerinden de görebilmen/test edebilmen için
+    public LLMLevelPlan currentPlan;
+    public bool useManualPlanForTest = true;
 
     [Header("Universal Structural Rules")]
     public int minTopWallThickness = 2;
@@ -47,38 +79,45 @@ public class DeBroglieGenerator : MonoBehaviour
     public bool is2D = true;
     public bool variantIsFlipX = false;
 
-    public enum RoomStyle { DFSMultiRoom, HubMultiRoom }
+    private int retryCount = 0;
+    private const int MAX_RETRIES = 10;
 
-    public class RoomData {
+    // İç mantık için gerekli veri yapıları
+    public class RoomData
+    {
+        public string roomID;
         public RectInt groundRect;
         public RectInt fullRect;
         public int topWallThickness;
+        // LLM planında spesifik kapı koordinatları yoksa algoritma bunları hesaplayacak
         public List<Vector2Int> allowedExits = new List<Vector2Int>();
     }
-    public class CorridorData {
+
+    public class CorridorData
+    {
         public Vector2Int start;
         public Vector2Int end;
         public bool isVerticalFirst;
     }
 
-    private int SafeRandomRange(int a, int b) {
+    // Yardımcı Metotlar
+    private int SafeRandomRange(int a, int b)
+    {
         return UnityEngine.Random.Range(Mathf.Min(a, b), Mathf.Max(a, b) + 1);
     }
 
-    private List<Vector2Int> GetRandomDirections(int minDirs, int maxDirs) {
-        List<Vector2Int> allDirs = new List<Vector2Int> { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-        List<Vector2Int> result = new List<Vector2Int>();
-        int count = UnityEngine.Random.Range(minDirs, maxDirs + 1);
-        int maxAllowed = Mathf.Min(count, allDirs.Count);
-        for (int i = 0; i < maxAllowed; i++) {
-            int idx = UnityEngine.Random.Range(0, allDirs.Count);
-            result.Add(allDirs[idx]);
-            allDirs.RemoveAt(idx);
+    // Yönleri LLM stringinden Vector2Int'e çeviren yardımcı metot
+    private Vector2Int GetDirectionVector(string dir)
+    {
+        switch (dir.ToLower())
+        {
+            case "up": return Vector2Int.up;
+            case "down": return Vector2Int.down;
+            case "left": return Vector2Int.left;
+            case "right": return Vector2Int.right;
+            default: return Vector2Int.zero;
         }
-        return result;
     }
-    [Header("Room Setup")]
-    public RoomStyle roomStyle = RoomStyle.DFSMultiRoom;
 
     [ContextMenu("Generate Scene")]
     public void Generate()
@@ -88,434 +127,240 @@ public class DeBroglieGenerator : MonoBehaviour
         int topWallThickness = UnityEngine.Random.Range(minTopWallThickness, maxTopWallThickness + 1);
 
         char[,] map = null;
-        List<RoomData> roomsList = null;
         int minX = 0, minY = 0;
         int width = 0, height = 0;
+        List<RoomData> roomsList = new List<RoomData>();
+        List<CorridorData> corridors = new List<CorridorData>();
+        Dictionary<string, RoomData> roomLookup = new Dictionary<string, RoomData>();
 
-        if (roomStyle == RoomStyle.DFSMultiRoom)
+        // 1. TEST VERİSİ (Plan boşsa doldurur, doluysa dokunmaz)
+        if (useManualPlanForTest && (currentPlan == null || currentPlan.rooms.Count == 0))
         {
-             int groundWidth = UnityEngine.Random.Range(dfsMinGroundWidth, dfsMaxGroundWidth + 1);
-             int groundHeight = UnityEngine.Random.Range(dfsMinGroundHeight, dfsMaxGroundHeight + 1);
-
-             roomsList = new List<RoomData>();
-             List<CorridorData> corridors = new List<CorridorData>();
-             
-             RoomData mainRoom = new RoomData();
-             mainRoom.topWallThickness = topWallThickness;
-             mainRoom.groundRect = new RectInt(50, 50, groundWidth, groundHeight);
-             mainRoom.fullRect = new RectInt(49, 49, groundWidth + 2, groundHeight + topWallThickness + 1);
-             mainRoom.allowedExits = GetRandomDirections(2, 4);
-             roomsList.Add(mainRoom);
-
-             int attempts = 0; int currentRooms = 0;
-
-             while (currentRooms < dfsMaxRooms && attempts < 2000)
-             {
-                 attempts++;
-                 RoomData parent = roomsList[UnityEngine.Random.Range(0, roomsList.Count)];
-                 if (parent.allowedExits.Count == 0) continue;
-                 
-                 List<Vector2Int> validDirs = parent.allowedExits;
-                 Vector2Int dir = validDirs[UnityEngine.Random.Range(0, validDirs.Count)];
-
-                 int nw = UnityEngine.Random.Range(dfsMinGroundWidth, dfsMaxGroundWidth + 1);
-                 int nh = UnityEngine.Random.Range(dfsMinGroundHeight, dfsMaxGroundHeight + 1);
-                 int nTop = UnityEngine.Random.Range(minTopWallThickness, maxTopWallThickness + 1);
-                 int corridorLen = UnityEngine.Random.Range(dfsMinCorridor, dfsMaxCorridor + 1);
-                 int nx = 0, ny = 0;
-
-                 if (dir == Vector2Int.up)
-                 {
-                     nx = SafeRandomRange(parent.groundRect.xMin - nw + 2, parent.groundRect.xMax - 2);
-                     ny = parent.fullRect.yMax + corridorLen + 1;
-                 }
-                 else if (dir == Vector2Int.down)
-                 {
-                     nx = SafeRandomRange(parent.groundRect.xMin - nw + 2, parent.groundRect.xMax - 2);
-                     ny = parent.fullRect.yMin - corridorLen - nh - nTop;
-                 }
-                 else if (dir == Vector2Int.right)
-                 {
-                     nx = parent.fullRect.xMax + corridorLen + 1;
-                     ny = SafeRandomRange(parent.groundRect.yMin - nh + 2, parent.groundRect.yMax - 2);
-                 }
-                 else if (dir == Vector2Int.left)
-                 {
-                     nx = parent.fullRect.xMin - corridorLen - nw - 1;
-                     ny = SafeRandomRange(parent.groundRect.yMin - nh + 2, parent.groundRect.yMax - 2);
-                 }
-
-                 RectInt newGround = new RectInt(nx, ny, nw, nh);
-                 RectInt newFull = new RectInt(nx - 1, ny - 1, nw + 2, nh + nTop + 1);
-
-                 CorridorData c = new CorridorData();
-                 int overlapXMin = Mathf.Max(parent.groundRect.xMin, newGround.xMin);
-                 int overlapXMax = Mathf.Min(parent.groundRect.xMax - 1, newGround.xMax - 1);
-                 int overlapYMin = Mathf.Max(parent.groundRect.yMin, newGround.yMin);
-                 int overlapYMax = Mathf.Min(parent.groundRect.yMax - 1, newGround.yMax - 1);
-                 
-                 if (dir == Vector2Int.up || dir == Vector2Int.down) {
-                     int sharedX = overlapXMin <= overlapXMax ? UnityEngine.Random.Range(overlapXMin, overlapXMax + 1) : Mathf.RoundToInt(newGround.center.x);
-                     c.start = new Vector2Int(sharedX, Mathf.RoundToInt(newGround.center.y));
-                     c.end = new Vector2Int(sharedX, Mathf.RoundToInt(parent.groundRect.center.y));
-                 } else {
-                     int sharedY = overlapYMin <= overlapYMax ? UnityEngine.Random.Range(overlapYMin, overlapYMax + 1) : Mathf.RoundToInt(newGround.center.y);
-                     c.start = new Vector2Int(Mathf.RoundToInt(newGround.center.x), sharedY);
-                     c.end = new Vector2Int(Mathf.RoundToInt(parent.groundRect.center.x), sharedY);
-                 }
-                 c.isVerticalFirst = (dir == Vector2Int.up || dir == Vector2Int.down);
-
-                 RectInt cRect = new RectInt(
-                     Mathf.Min(c.start.x, c.end.x),
-                     Mathf.Min(c.start.y, c.end.y),
-                     Mathf.Abs(c.start.x - c.end.x) + 1,
-                     Mathf.Abs(c.start.y - c.end.y) + 1
-                 );
-
-                 bool overlap = false;
-                 foreach (var r in roomsList)
-                 {
-                     RectInt rExp = new RectInt(r.fullRect.x - 1, r.fullRect.y - 1, r.fullRect.width + 2, r.fullRect.height + 2);
-                     if (rExp.Overlaps(newFull)) { overlap = true; break; }
-                     if (r != parent && rExp.Overlaps(cRect)) { overlap = true; break; }
-                 }
-
-                 if (!overlap)
-                 {
-                     RoomData newRoom = new RoomData { groundRect = newGround, fullRect = newFull, topWallThickness = nTop, allowedExits = GetRandomDirections(1, 3) };
-                     roomsList.Add(newRoom);
-                     corridors.Add(c);
-                     currentRooms++;
-                 }
-             }
-
-             minX = 9999; minY = 9999; int maxX = -9999, maxY = -9999;
-             foreach(var r in roomsList) {
-                 if (r.fullRect.xMin < minX) minX = r.fullRect.xMin;
-                 if (r.fullRect.yMin < minY) minY = r.fullRect.yMin;
-                 if (r.fullRect.xMax > maxX) maxX = r.fullRect.xMax;
-                 if (r.fullRect.yMax > maxY) maxY = r.fullRect.yMax;
-             }
-             minX -= 2; minY -= 2; maxX += 2; maxY += 2;
-             width = maxX - minX;
-             height = maxY - minY;
-
-             map = new char[width, height];
-             for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) map[x,y] = ' ';
-
-             foreach(var r in roomsList) {
-                 for (int x = r.fullRect.xMin; x < r.fullRect.xMax; x++) {
-                     for (int y = r.fullRect.yMin; y < r.fullRect.yMax; y++) {
-                         map[x - minX, y - minY] = 'W';
-                     }
-                 }
-             }
-             foreach(var r in roomsList) {
-                 for (int x = r.groundRect.xMin; x < r.groundRect.xMax; x++) {
-                     for (int y = r.groundRect.yMin; y < r.groundRect.yMax; y++) {
-                         map[x - minX, y - minY] = 'G';
-                     }
-                 }
-             }
-             foreach(var c in corridors) {
-                 int sx = c.start.x - minX, sy = c.start.y - minY;
-                 int ex = c.end.x - minX, ey = c.end.y - minY;
-                 
-                 if (c.isVerticalFirst) {
-                     int stepY = sy < ey ? 1 : -1;
-                     for (int y = sy; y != ey; y += stepY) map[sx, y] = 'C';
-                     map[sx, ey] = 'C';
-                     int stepX = sx < ex ? 1 : -1;
-                     for (int x = sx; x != ex; x += stepX) map[x, ey] = 'C';
-                 } else {
-                     int stepX = sx < ex ? 1 : -1;
-                     for (int x = sx; x != ex; x += stepX) map[x, sy] = 'C';
-                     map[ex, sy] = 'C';
-                     int stepY = sy < ey ? 1 : -1;
-                     for (int y = sy; y != ey; y += stepY) map[ex, y] = 'C';
-                 }
-             }
-        }
-        else if (roomStyle == RoomStyle.HubMultiRoom)
-        {
-             int mainW = UnityEngine.Random.Range(hubMinMainWidth, hubMaxMainWidth + 1);
-             int mainH = UnityEngine.Random.Range(hubMinMainHeight, hubMaxMainHeight + 1);
-
-             roomsList = new List<RoomData>();
-             List<CorridorData> corridors = new List<CorridorData>();
-             
-             RoomData mainRoom = new RoomData();
-             mainRoom.topWallThickness = topWallThickness;
-             mainRoom.groundRect = new RectInt(50, 50, mainW, mainH);
-             mainRoom.fullRect = new RectInt(49, 49, mainW + 2, mainH + topWallThickness + 1);
-             mainRoom.allowedExits = GetRandomDirections(2, 4); // Hub dynamically restricts its exits for organic shapes
-             roomsList.Add(mainRoom);
-
-             int attempts = 0; int currentRooms = 0;
-
-             while (currentRooms < hubMaxRooms && attempts < 2000)
-             {
-                 attempts++;
-                 if (mainRoom.allowedExits.Count == 0) break; // Should never happen but safe
-
-                 List<Vector2Int> validDirs = mainRoom.allowedExits;
-                 Vector2Int dir = validDirs[UnityEngine.Random.Range(0, validDirs.Count)];
-
-                 int nw = UnityEngine.Random.Range(hubMinWidth, hubMaxWidth + 1);
-                 int nh = UnityEngine.Random.Range(hubMinHeight, hubMaxHeight + 1);
-                 int nTop = UnityEngine.Random.Range(minTopWallThickness, maxTopWallThickness + 1);
-                 int corridorLen = UnityEngine.Random.Range(hubMinCorridor, hubMaxCorridor + 1);
-
-                 int nx = 0, ny = 0;
-
-                 if (dir == Vector2Int.up)
-                 {
-                     nx = SafeRandomRange(mainRoom.groundRect.xMin - nw + 2, mainRoom.groundRect.xMax - 2);
-                     ny = mainRoom.fullRect.yMax + corridorLen + 1;
-                 }
-                 else if (dir == Vector2Int.down)
-                 {
-                     nx = SafeRandomRange(mainRoom.groundRect.xMin - nw + 2, mainRoom.groundRect.xMax - 2);
-                     ny = mainRoom.fullRect.yMin - corridorLen - nh - nTop;
-                 }
-                 else if (dir == Vector2Int.right)
-                 {
-                     nx = mainRoom.fullRect.xMax + corridorLen + 1;
-                     ny = SafeRandomRange(mainRoom.groundRect.yMin - nh + 2, mainRoom.groundRect.yMax - 2);
-                 }
-                 else if (dir == Vector2Int.left)
-                 {
-                     nx = mainRoom.fullRect.xMin - corridorLen - nw - 1;
-                     ny = SafeRandomRange(mainRoom.groundRect.yMin - nh + 2, mainRoom.groundRect.yMax - 2);
-                 }
-
-                 RectInt newGround = new RectInt(nx, ny, nw, nh);
-                 RectInt newFull = new RectInt(nx - 1, ny - 1, nw + 2, nh + nTop + 1);
-
-                 CorridorData c = new CorridorData();
-                 int overlapXMin = Mathf.Max(mainRoom.groundRect.xMin, newGround.xMin);
-                 int overlapXMax = Mathf.Min(mainRoom.groundRect.xMax - 1, newGround.xMax - 1);
-                 int overlapYMin = Mathf.Max(mainRoom.groundRect.yMin, newGround.yMin);
-                 int overlapYMax = Mathf.Min(mainRoom.groundRect.yMax - 1, newGround.yMax - 1);
-                 
-                 if (dir == Vector2Int.up || dir == Vector2Int.down) {
-                     int sharedX = overlapXMin <= overlapXMax ? UnityEngine.Random.Range(overlapXMin, overlapXMax + 1) : Mathf.RoundToInt(newGround.center.x);
-                     c.start = new Vector2Int(sharedX, Mathf.RoundToInt(newGround.center.y));
-                     c.end = new Vector2Int(sharedX, Mathf.RoundToInt(mainRoom.groundRect.center.y));
-                 } else {
-                     int sharedY = overlapYMin <= overlapYMax ? UnityEngine.Random.Range(overlapYMin, overlapYMax + 1) : Mathf.RoundToInt(newGround.center.y);
-                     c.start = new Vector2Int(Mathf.RoundToInt(newGround.center.x), sharedY);
-                     c.end = new Vector2Int(Mathf.RoundToInt(mainRoom.groundRect.center.x), sharedY);
-                 }
-                 c.isVerticalFirst = (dir == Vector2Int.up || dir == Vector2Int.down);
-
-                 RectInt cRect = new RectInt(
-                     Mathf.Min(c.start.x, c.end.x),
-                     Mathf.Min(c.start.y, c.end.y),
-                     Mathf.Abs(c.start.x - c.end.x) + 1,
-                     Mathf.Abs(c.start.y - c.end.y) + 1
-                 );
-
-                 bool overlap = false;
-                 foreach (var r in roomsList)
-                 {
-                     RectInt rExp = new RectInt(r.fullRect.x - 1, r.fullRect.y - 1, r.fullRect.width + 2, r.fullRect.height + 2);
-                     if (rExp.Overlaps(newFull)) { overlap = true; break; }
-                     if (r != mainRoom && rExp.Overlaps(cRect)) { overlap = true; break; }
-                 }
-
-                 if (!overlap)
-                 {
-                     RoomData newRoom = new RoomData { groundRect = newGround, fullRect = newFull, topWallThickness = nTop };
-                     roomsList.Add(newRoom);
-                     corridors.Add(c);
-                     currentRooms++;
-                 }
-             }
-
-             minX = 9999; minY = 9999; int maxX = -9999, maxY = -9999;
-             foreach(var r in roomsList) {
-                 if (r.fullRect.xMin < minX) minX = r.fullRect.xMin;
-                 if (r.fullRect.yMin < minY) minY = r.fullRect.yMin;
-                 if (r.fullRect.xMax > maxX) maxX = r.fullRect.xMax;
-                 if (r.fullRect.yMax > maxY) maxY = r.fullRect.yMax;
-             }
-             minX -= 2; minY -= 2; maxX += 2; maxY += 2;
-             width = maxX - minX;
-             height = maxY - minY;
-
-             map = new char[width, height];
-             for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) map[x,y] = ' ';
-
-             foreach(var r in roomsList) {
-                 for (int x = r.fullRect.xMin; x < r.fullRect.xMax; x++) {
-                     for (int y = r.fullRect.yMin; y < r.fullRect.yMax; y++) {
-                         map[x - minX, y - minY] = 'W';
-                     }
-                 }
-             }
-             foreach(var r in roomsList) {
-                 for (int x = r.groundRect.xMin; x < r.groundRect.xMax; x++) {
-                     for (int y = r.groundRect.yMin; y < r.groundRect.yMax; y++) {
-                         map[x - minX, y - minY] = 'G';
-                     }
-                 }
-             }
-             foreach(var c in corridors) {
-                 int sx = c.start.x - minX, sy = c.start.y - minY;
-                 int ex = c.end.x - minX, ey = c.end.y - minY;
-                 
-                 int stepX = sx < ex ? 1 : -1;
-                 for (int x = sx; x != ex; x += stepX) map[x, sy] = 'C';
-
-                 int stepY = sy < ey ? 1 : -1;
-                 for (int y = sy; y != ey; y += stepY) map[ex, y] = 'C';
-                 map[ex, ey] = 'C'; // Ensures the final point is set
-             }
+            currentPlan = new LLMLevelPlan();
+            currentPlan.rooms.Add(new LLMRoomRequest { id = "Lobby", width = 10, height = 10, connectTo = "", direction = "" });
+            currentPlan.rooms.Add(new LLMRoomRequest { id = "Office", width = 6, height = 6, connectTo = "Lobby", direction = "Right", corridorLen = 3 });
+            currentPlan.rooms.Add(new LLMRoomRequest { id = "Storage", width = 5, height = 7, connectTo = "Lobby", direction = "Up", corridorLen = 2 });
         }
 
-        if (map != null && roomsList != null) 
+        // 2. ADIM: ODALARI YERLEŞTİRME VE KORİDOR HESAPLAMA
+        foreach (var req in currentPlan.rooms)
         {
-             // Determine glass
-             for (int i = 0; i < roomsList.Count; i++) {
-                 if (i == 0) continue; // ana odada cam olmasın
-                 var r = roomsList[i];
-                 int glassY = r.groundRect.yMax + r.topWallThickness / 2;
-                 for (int x = r.groundRect.xMin + 1; x < r.groundRect.xMax - 1; x++) {
-                     if (map[x - minX, glassY - minY] == 'W') { 
-                         if (UnityEngine.Random.value > 0.5f && map[x - minX - 1, glassY - minY] != 'O') 
-                             map[x - minX, glassY - minY] = 'O'; 
-                     }
-                 }
-             }
+            RoomData newRoom = new RoomData { roomID = req.id };
+            newRoom.topWallThickness = SafeRandomRange(minTopWallThickness, maxTopWallThickness);
 
-             // Determine doors!
-             foreach(var r in roomsList) {
-                 List<Vector2Int> borders = new List<Vector2Int>();
-                 for (int y = r.groundRect.yMin; y < r.groundRect.yMax; y++) {
-                     borders.Add(new Vector2Int(r.groundRect.xMin - 1, y)); // Left
-                     borders.Add(new Vector2Int(r.groundRect.xMax, y)); // Right
-                 }
-                 for (int x = r.groundRect.xMin; x < r.groundRect.xMax; x++) {
-                     borders.Add(new Vector2Int(x, r.groundRect.yMin - 1)); // Bottom
-                     borders.Add(new Vector2Int(x, r.groundRect.yMax)); // Top Inner
-                 }
+            int nx = 50, ny = 50;
 
-                 foreach(var b in borders) {
-                     int bx = b.x - minX;
-                     int by = b.y - minY;
-                     if (map[bx, by] == 'C') {
-                         bool isBetweenWalls = (bx > 0 && bx < width - 1 && map[bx - 1, by] == 'W' && map[bx + 1, by] == 'W') ||
-                                               (by > 0 && by < height - 1 && map[bx, by - 1] == 'W' && map[bx, by + 1] == 'W');
+            if (!string.IsNullOrEmpty(req.connectTo) && roomLookup.ContainsKey(req.connectTo))
+            {
+                RoomData parent = roomLookup[req.connectTo];
+                int xOffset = UnityEngine.Random.Range(0, Mathf.Max(1, parent.groundRect.width - req.width));
+                int yOffset = UnityEngine.Random.Range(0, Mathf.Max(1, parent.groundRect.height - req.height));
 
-                         if (isBetweenWalls) {
-                             bool hasAdjD = false;
-                             if (bx > 0 && map[bx - 1, by] == 'D') hasAdjD = true;
-                             if (by > 0 && map[bx, by - 1] == 'D') hasAdjD = true;
-                             if (bx < width - 1 && map[bx + 1, by] == 'D') hasAdjD = true;
-                             if (by < height - 1 && map[bx, by + 1] == 'D') hasAdjD = true;
+                // Koridor Başlangıç ve Bitiş Noktaları (Dinamik Hizalama İçin)
+                int startX = 0, startY = 0;
+                int endX = 0, endY = 0;
 
-                             if (hasAdjD) {
-                                 map[bx, by] = 'G'; // Convert extra parallel door to open passage
-                             } else {
-                                 map[bx, by] = 'D'; // Standard Door
-                             }
-                         } else {
-                             map[bx, by] = 'G'; // Convert invalid door position to open passage
-                         }
-                     }
-                 }
-             }
+                switch (req.direction.ToLower())
+                {
+                    case "up":
+                        nx = parent.groundRect.xMin + xOffset;
+                        ny = parent.fullRect.yMax + req.corridorLen + 1;
+                        // Dikey Hizalama: X'i yeni odanın ortasına sabitle
+                        startX = nx + (req.width / 2);
+                        startY = parent.groundRect.yMax;
+                        endX = startX;
+                        endY = ny - 1;
+                        break;
 
-             // -- ADD MAIN ENTRANCE DOOR --
-             List<System.Tuple<Vector2Int, Vector2Int>> entranceCandidates = new List<System.Tuple<Vector2Int, Vector2Int>>();
-             RoomData mRoom = roomsList[0];
-             
-             for (int y = mRoom.groundRect.yMin + 2; y < mRoom.groundRect.yMax - 2; y++) {
-                 entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(mRoom.groundRect.xMin - 1, y), Vector2Int.left));
-                 entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(mRoom.groundRect.xMax, y), Vector2Int.right));
-             }
-             for (int x = mRoom.groundRect.xMin + 2; x < mRoom.groundRect.xMax - 2; x++) {
-                 entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(x, mRoom.groundRect.yMin - 1), Vector2Int.down));
-                 entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(x, mRoom.groundRect.yMax), Vector2Int.up));
-             }
+                    case "down":
+                        nx = parent.groundRect.xMin + xOffset;
+                        ny = parent.fullRect.yMin - req.corridorLen - req.height - newRoom.topWallThickness;
+                        // Dikey Hizalama: X'i yeni odanın ortasına sabitle
+                        startX = nx + (req.width / 2);
+                        startY = parent.groundRect.yMin - 1;
+                        endX = startX;
+                        endY = ny + req.height + newRoom.topWallThickness;
+                        break;
 
-             // Shuffle
-             for (int i = 0; i < entranceCandidates.Count; i++) {
-                 int rIdx = UnityEngine.Random.Range(i, entranceCandidates.Count);
-                 var temp = entranceCandidates[i];
-                 entranceCandidates[i] = entranceCandidates[rIdx];
-                 entranceCandidates[rIdx] = temp;
-             }
+                    case "right":
+                        nx = parent.fullRect.xMax + req.corridorLen + 1;
+                        ny = parent.groundRect.yMin + yOffset;
+                        // Yatay Hizalama: Y'yi yeni odanın ortasına sabitle
+                        startX = parent.groundRect.xMax;
+                        startY = ny + (req.height / 2);
+                        endX = nx - 1;
+                        endY = startY;
+                        break;
 
-             bool entrancePlaced = false;
-             foreach (var candidate in entranceCandidates) {
-                 int bx = candidate.Item1.x - minX;
-                 int by = candidate.Item1.y - minY;
-                 Vector2Int dir = candidate.Item2;
+                    case "left":
+                        nx = parent.fullRect.xMin - req.corridorLen - req.width - 1;
+                        ny = parent.groundRect.yMin + yOffset;
+                        // Yatay Hizalama: Y'yi yeni odanın ortasına sabitle
+                        startX = parent.groundRect.xMin - 1;
+                        startY = ny + (req.height / 2);
+                        endX = nx + req.width;
+                        endY = startY;
+                        break;
+                }
 
-                 if (map[bx, by] == 'W') {
-                     bool hasCloseDoor = false;
-                     // Prevent placement too close to other connections
-                     for (int dx = -4; dx <= 4; dx++) {
-                         for (int dy = -4; dy <= 4; dy++) {
-                             int cx = bx + dx, cy = by + dy;
-                             if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-                                 if (map[cx, cy] == 'D') {
-                                     hasCloseDoor = true;
-                                     break;
-                                 }
-                             }
-                         }
-                         if (hasCloseDoor) break;
-                     }
+                // Yeni Dinamik Koridor Verisi
+                CorridorData c = new CorridorData();
+                c.start = new Vector2Int(startX, startY);
+                c.end = new Vector2Int(endX, endY);
+                c.isVerticalFirst = (req.direction.ToLower() == "up" || req.direction.ToLower() == "down");
+                corridors.Add(c);
+            }
 
-                     if (!hasCloseDoor) {
-                         map[bx, by] = 'D';
+            newRoom.groundRect = new RectInt(nx, ny, req.width, req.height);
+            newRoom.fullRect = new RectInt(nx - 1, ny - 1, req.width + 2, req.height + newRoom.topWallThickness + 1);
 
-                         // Pierce thick wall on top so player can walk out cleanly
-                         if (dir == Vector2Int.up) {
-                             int thick = mRoom.topWallThickness;
-                             for (int t = 1; t <= thick; t++) {
-                                 int py = by + t;
-                                 if (py < height) {
-                                     map[bx, py] = 'G';
-                                 }
-                             }
-                         }
+            roomsList.Add(newRoom);
+            roomLookup[req.id] = newRoom;
+        }
 
-                         entrancePlaced = true;
-                         break;
-                     }
-                 }
-             }
-             // -- END MAIN ENTRANCE DOOR --
+        // 2. ADIM'ın hemen sonuna ekle:
+        int actualMinX = int.MaxValue, actualMaxX = int.MinValue;
+        int actualMinY = int.MaxValue, actualMaxY = int.MinValue;
 
-             // Explicitly wrap corridors and doors with walls so WFC doesn't expand them into huge ground patches
-             for (int x = 0; x < width; x++) {
-                 for (int y = 0; y < height; y++) {
-                     if (map[x,y] == 'C' || map[x,y] == 'D') {
-                         for (int dx = -1; dx <= 1; dx++) {
-                             for (int dy = -1; dy <= 1; dy++) {
-                                 int wX = x + dx;
-                                 int wY = y + dy;
-                                 if (wX >= 0 && wX < width && wY >= 0 && wY < height) {
-                                     if (map[wX, wY] == ' ') {
-                                         map[wX, wY] = 'W';
-                                     }
-                                 }
-                             }
-                         }
-                     }
-                 }
-             }
+        foreach (var r in roomsList)
+        {
+            actualMinX = Mathf.Min(actualMinX, r.fullRect.xMin);
+            actualMaxX = Mathf.Max(actualMaxX, r.fullRect.xMax);
+            actualMinY = Mathf.Min(actualMinY, r.fullRect.yMin);
+            actualMaxY = Mathf.Max(actualMaxY, r.fullRect.yMax);
+        }
 
-             // Corridors to Ground
-             for (int x = 0; x < width; x++) {
-                 for (int y = 0; y < height; y++) {
-                     if (map[x,y] == 'C') map[x,y] = 'G';
-                 }
-             }
+        // Global değişkenlere ata (kenarlarda 2 birim boşluk bırakmak WFC için iyidir)
+        minX = actualMinX - 2;
+        minY = actualMinY - 2;
+        width = (actualMaxX - actualMinX) + 5;
+        height = (actualMaxY - actualMinY) + 5;
+
+        // Haritayı initialize et (Bunu yapmazsan null hatası alırsın)
+        map = new char[width, height];
+        for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
+                map[x, y] = ' ';
+
+        // Harita boyutlarını hesapladıktan sonra:
+
+        foreach (var r in roomsList)
+        {
+            // Zeminleri çiz
+            for (int x = r.groundRect.xMin; x < r.groundRect.xMax; x++)
+                for (int y = r.groundRect.yMin; y < r.groundRect.yMax; y++)
+                    map[x - minX, y - minY] = 'G';
+
+            // Duvarları çiz
+            for (int x = r.fullRect.xMin; x < r.fullRect.xMax; x++)
+            {
+                for (int y = r.fullRect.yMin; y < r.fullRect.yMax; y++)
+                {
+                    if (map[x - minX, y - minY] != 'G')
+                        map[x - minX, y - minY] = 'W';
+                }
+            }
+        }
+
+        // 5. ADIM: KORİDORLARI ÇİZ (Artık düz çizecek)
+        foreach (var c in corridors)
+        {
+            Vector2Int cur = c.start;
+            int stepX = (c.end.x > c.start.x) ? 1 : (c.end.x < c.start.x ? -1 : 0);
+            int stepY = (c.end.y > c.start.y) ? 1 : (c.end.y < c.start.y ? -1 : 0);
+            bool doorPlaced = false;
+
+            void DrawCell(int x, int y)
+            {
+                int mx = x - minX; int my = y - minY;
+                if (mx < 0 || mx >= width || my < 0 || my >= height) return;
+
+                if (map[mx, my] == 'W' && !doorPlaced) { map[mx, my] = 'D'; doorPlaced = true; }
+                else if (map[mx, my] != 'G' && map[mx, my] != 'D') { map[mx, my] = 'G'; }
+
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = -1; dy <= 1; dy++)
+                    {
+                        int wx = mx + dx; int wy = my + dy;
+                        if (wx >= 0 && wx < width && wy >= 0 && wy < height && map[wx, wy] == ' ') map[wx, wy] = 'W';
+                    }
+            }
+
+            // Çizim döngüsü (startX/Y artık endX/Y ile aynı eksende olduğu için düz gider)
+            while (cur != c.end)
+            {
+                DrawCell(cur.x, cur.y);
+                if (cur.x != c.end.x) cur.x += stepX;
+                else if (cur.y != c.end.y) cur.y += stepY;
+            }
+            DrawCell(c.end.x, c.end.y);
+        }
+
+        // 6. ADIM: CAMLARI YERLEŞTİR (Sadece duvar olan yerlere)
+        for (int i = 1; i < roomsList.Count; i++)
+        {
+            var r = roomsList[i];
+            int glassY = r.groundRect.yMax + r.topWallThickness / 2;
+            for (int x = r.groundRect.xMin + 1; x < r.groundRect.xMax - 1; x++)
+            {
+                int mx = x - minX; int my = glassY - minY;
+                if (map[mx, my] == 'W' && map[mx - 1, my] == 'W' && map[mx + 1, my] == 'W')
+                {
+                    if (UnityEngine.Random.value > 0.5f) map[mx, my] = 'O';
+                }
+            }
+        }
+
+        // --- ANA GİRİŞ KAPISI ALGORİTMASI ---
+        List<System.Tuple<Vector2Int, Vector2Int>> entranceCandidates = new List<System.Tuple<Vector2Int, Vector2Int>>();
+        RoomData mRoom = roomsList[0];
+
+        int minOccupiedX = int.MaxValue, maxOccupiedX = int.MinValue;
+        int minOccupiedY = int.MaxValue, maxOccupiedY = int.MinValue;
+        foreach (var r in roomsList)
+        {
+            minOccupiedX = Mathf.Min(minOccupiedX, r.fullRect.xMin);
+            maxOccupiedX = Mathf.Max(maxOccupiedX, r.fullRect.xMax);
+            minOccupiedY = Mathf.Min(minOccupiedY, r.fullRect.yMin);
+            maxOccupiedY = Mathf.Max(maxOccupiedY, r.fullRect.yMax);
+        }
+
+        bool canGoUp = mRoom.fullRect.yMax >= maxOccupiedY;
+        bool canGoDown = mRoom.fullRect.yMin <= minOccupiedY;
+        bool canGoLeft = mRoom.fullRect.xMin <= minOccupiedX;
+        bool canGoRight = mRoom.fullRect.xMax >= maxOccupiedX;
+
+        if (canGoLeft)
+        {
+            for (int y = mRoom.groundRect.yMin + 1; y < mRoom.groundRect.yMax - 1; y++)
+                entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(mRoom.groundRect.xMin - 1, y), Vector2Int.left));
+        }
+        if (canGoRight)
+        {
+            for (int y = mRoom.groundRect.yMin + 1; y < mRoom.groundRect.yMax - 1; y++)
+                entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(mRoom.groundRect.xMax, y), Vector2Int.right));
+        }
+        if (canGoDown)
+        {
+            for (int x = mRoom.groundRect.xMin + 1; x < mRoom.groundRect.xMax - 1; x++)
+                entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(x, mRoom.groundRect.yMin - 1), Vector2Int.down));
+        }
+        if (canGoUp)
+        {
+            for (int x = mRoom.groundRect.xMin + 1; x < mRoom.groundRect.xMax - 1; x++)
+                entranceCandidates.Add(new System.Tuple<Vector2Int, Vector2Int>(new Vector2Int(x, mRoom.groundRect.yMax), Vector2Int.up));
+        }
+
+        if (entranceCandidates.Count > 0)
+        {
+            var choice = entranceCandidates[UnityEngine.Random.Range(0, entranceCandidates.Count)];
+            int ex = choice.Item1.x - minX;
+            int ey = choice.Item1.y - minY;
+            map[ex, ey] = 'D';
+
+            int outX = ex + choice.Item2.x;
+            int outY = ey + choice.Item2.y;
+            if (outX >= 0 && outX < width && outY >= 0 && outY < height) map[outX, outY] = 'G';
         }
 
         XmlDocument doc = new XmlDocument();
@@ -586,7 +431,8 @@ public class DeBroglieGenerator : MonoBehaviour
         {
             Tile topTile = new Tile(pair.Item1);
             Tile bottomTile = new Tile(pair.Item2);
-            model.AddAdjacency(topTile, bottomTile, 0, -1, 0); // using x, y, z overload if possible, else we use 2/3
+            model.AddAdjacency(topTile, bottomTile, 0, -1, 0);
+            model.AddAdjacency(bottomTile, topTile, 0, 1, 0);// using x, y, z overload if possible, else we use 2/3
             // Actually, best to use assumed direction 2 and 3
         }
         
@@ -606,6 +452,9 @@ public class DeBroglieGenerator : MonoBehaviour
 
         TilePropagator propagator = new TilePropagator(model, topology);
 
+
+
+
         if (map != null)
         {
             string groundVariant = allTileVariants.FirstOrDefault(v => v.Contains("Ground"));
@@ -623,6 +472,7 @@ public class DeBroglieGenerator : MonoBehaviour
                             if (groundVariant != null) propagator.Ban(x, y, 0, new Tile(groundVariant));
                             if (doorVariant != null) propagator.Ban(x, y, 0, new Tile(doorVariant));
                             if (glassVariant != null) propagator.Ban(x, y, 0, new Tile(glassVariant));
+                            //if (wallVariant != null) propagator.Ban(x, y, 0, new Tile(wallVariant));
                         }
                         else if (c == 'W') {
                             if (groundVariant != null) propagator.Ban(x, y, 0, new Tile(groundVariant));
@@ -640,8 +490,9 @@ public class DeBroglieGenerator : MonoBehaviour
                         else if (c == 'O') {
                             if (groundVariant != null) propagator.Ban(x, y, 0, new Tile(groundVariant));
                             if (doorVariant != null) propagator.Ban(x, y, 0, new Tile(doorVariant));
-                            // Allowing Wall or Glass prevents WFC contradictions if Glass is illegal
-                        }
+                        // Allowing Wall or Glass prevents WFC contradictions if Glass is illegal
+                            if (glassVariant != null) propagator.Select(x, y, 0, new Tile(glassVariant));
+                    }
                 }
             }
         }
@@ -650,10 +501,27 @@ public class DeBroglieGenerator : MonoBehaviour
 
         Debug.Log("DeBroglie Run Status: " + status.ToString());
 
+
+
         if (status == DeBroglie.Resolution.Contradiction)
         {
-            Debug.LogError("Wave Function Collapse failed with a contradiction.");
-            return;
+            if (retryCount < MAX_RETRIES)
+            {
+                retryCount++;
+                Debug.LogWarning($"Çelişki oluştu. Deneme {retryCount}/{MAX_RETRIES}...");
+
+                // Sahneyi temizlediğinden emin ol (Eğer önceden bir şeyler spawn ediyorsan)
+                // ClearLevel(); 
+
+                Generate(); // Tekrar dene
+                return;
+            }
+            else
+            {
+                Debug.LogError("Maksimum deneme sayısına ulaşıldı! XML kurallarını veya harita taslağını kontrol et.");
+                retryCount = 0; // Bir sonraki manuel basış için sıfırla
+                return;
+            }
         }
 
         Debug.Log("Generation successful, instantiating prefabs...");
@@ -687,10 +555,16 @@ public class DeBroglieGenerator : MonoBehaviour
             }
         }
         Debug.Log("Total prefabs instantiated: " + instantCount);
+
+        PlaceProps(map, minX, minY, roomsList);
     }
 
     private string GetBaseName(string variant)
     {
+        // 1. ADIM: Void kontrolü (XML'de Assets/Prefabs/ kullanmadığın için)
+        if (variant == "Void") return "Void";
+
+        // 2. ADIM: Mevcut variant temizleme mantığın
         // Variant is like "Assets/Prefabs/Wall 0" or "Assets/Prefabs/Wall"
         int lastSpace = variant.LastIndexOf(' ');
         if (lastSpace > 0)
@@ -713,16 +587,24 @@ public class DeBroglieGenerator : MonoBehaviour
         if (prefab != null)
         {
             GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, this.transform);
-            
+
             if (is2D)
             {
-                instance.transform.localPosition = new Vector3(x * tileSize, y * tileSize, 0);
+                // tileSize ile çarparak her zaman tile'ın tam ortasına denk gelmesini sağlıyoruz
+                float xPos = (x * tileSize) + (tileSize * 0.5f);
+                float yPos = (y * tileSize) + (tileSize * 0.5f);
+
+                instance.transform.localPosition = new Vector3(xPos, yPos, 0);
             }
             else
             {
-                instance.transform.localPosition = new Vector3(x * tileSize, 0, y * tileSize);
+                // 3D için de aynı mantık (X ve Z düzleminde)
+                float xPos = (x * tileSize) + (tileSize * 0.5f);
+                float zPos = (y * tileSize) + (tileSize * 0.5f);
+
+                instance.transform.localPosition = new Vector3(xPos, 0, zPos);
             }
-            
+
             // Handle Rotations based on variant number
             int lastSpace = variant.LastIndexOf(' ');
             if (lastSpace > 0)
@@ -753,5 +635,154 @@ public class DeBroglieGenerator : MonoBehaviour
             Debug.LogWarning("Prefab not found at: " + baseName + ".prefab");
         }
 #endif
+    }
+
+    private void InstantiateProp(string propName, int x, int y, float rotationAngle)
+    {
+#if UNITY_EDITOR
+        // Proplarını Prefabs/Props gibi bir klasörde tuttuğunu varsayıyorum, yolunu kendine göre ayarla.
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/" + propName + ".prefab");
+        if (prefab != null)
+        {
+
+            Debug.LogWarning("AAAAAAAAAAAAAAAAAAAA " + propName);
+            GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, this.transform);
+
+            float xPos = (x * tileSize) + (tileSize * 0.5f);
+
+            if (is2D)
+            {
+                float yPos = (y * tileSize) + (tileSize * 0.5f);
+                instance.transform.localPosition = new Vector3(xPos, yPos, -0.1f);
+                instance.transform.localRotation = Quaternion.Euler(0, 0, rotationAngle);
+            }
+            else
+            {
+                float zPos = (y * tileSize) + (tileSize * 0.5f);
+                instance.transform.localPosition = new Vector3(xPos, 0.05f, zPos);
+                instance.transform.localRotation = Quaternion.Euler(0, rotationAngle, 0);
+            }
+        }
+        else
+        {
+            Debug.LogWarning("Prop Prefab bulunamadı: " + propName);
+        }
+#endif
+    }
+    private void PlaceProps(char[,] map, int minX, int minY, List<RoomData> roomsList)
+    {
+        // Hangi gridlerin prop ile dolu olduğunu takip edelim ki üst üste binmesinler
+        bool[,] isOccupied = new bool[map.GetLength(0), map.GetLength(1)];
+
+        foreach (var room in roomsList)
+        {
+            // Bu odaya ait prop listesini bul
+            RoomPropPool pool = roomPropPools.FirstOrDefault(p => p.roomID == room.roomID);
+            if (pool == null) continue;
+
+            foreach (var prop in pool.propsToSpawn)
+            {
+                bool placed = false;
+                int attempts = 0;
+
+                while (!placed && attempts < 50) // Sonsuz döngüyü önlemek için limit
+                {
+                    attempts++;
+
+                    // Odanın zemin sınırları içinde rastgele bir nokta seç
+                    int rx = UnityEngine.Random.Range(room.groundRect.xMin, room.groundRect.xMax);
+                    int ry = UnityEngine.Random.Range(room.groundRect.yMin, room.groundRect.yMax);
+
+                    int mx = rx - minX;
+                    int my = ry - minY;
+
+                    // Eğer burası zemin değilse, kapıysa veya doluysa atla
+                    if (map[mx, my] != 'G' || isOccupied[mx, my]) continue;
+
+                    if (prop.placementType == PropPlacementType.WallEdge)
+                    {
+                        string suffix = "";
+                        bool isValidWallSpot = false;
+
+                        // Duvar yönlerini kontrol et
+                        if (map[mx, my + 1] == 'W' && map[mx, my - 1] != 'D')
+                        {
+                            if (prop.isDirectional) suffix = "_Back";
+                            isValidWallSpot = true;
+                        }
+                        else if (map[mx, my - 1] == 'W' && map[mx, my + 1] != 'D')
+                        {
+                            if (prop.isDirectional) suffix = "_Front";
+                            isValidWallSpot = true;
+                        }
+                        else if (map[mx - 1, my] == 'W' && map[mx + 1, my] != 'D')
+                        {
+                            if (prop.isDirectional) suffix = "_Side_R";
+                            isValidWallSpot = true;
+                        }
+                        else if (map[mx + 1, my] == 'W' && map[mx - 1, my] != 'D')
+                        {
+                            if (prop.isDirectional) suffix = "_Side_L";
+                            isValidWallSpot = true;
+                        }
+
+                        if (isValidWallSpot)
+                        {
+                            // Eğer isDirectional false ise suffix zaten boş ("") kalacak
+                            string finalPropName = prop.propName + suffix;
+
+                            // faceInward logic'ini yönlü olmayan basit objeler için hala kullanabilirsin
+                            float rotation = (prop.isDirectional) ? 0f : (prop.faceInward ? GetSimpleRotation(mx, my, map) : 0f);
+
+                            InstantiateProp(finalPropName, mx, my, rotation);
+
+                            isOccupied[mx, my] = true;
+                            placed = true;
+                        }
+                    }
+                    else if (prop.placementType == PropPlacementType.Center)
+                    {
+                        // Merkeze konacaksa duvarlara değmediğinden emin olalım (1 birim içeride olsun)
+                        if (map[mx + 1, my] == 'G' && map[mx - 1, my] == 'G' &&
+                            map[mx, my + 1] == 'G' && map[mx, my - 1] == 'G')
+                        {
+                            // Rastgele 90 derecelik bir açı ver
+                            float randomRot = UnityEngine.Random.Range(0, 4) * 90f;
+                            InstantiateProp(prop.propName, mx, my, randomRot);
+                            isOccupied[mx, my] = true;
+                            placed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    private float GetSimpleRotation(int mx, int my, char[,] map)
+    {
+        // Üst duvar kontrolü (Prop aşağı bakmalı)
+        if (mx >= 0 && mx < map.GetLength(0) && my + 1 < map.GetLength(1))
+        {
+            if (map[mx, my + 1] == 'W') return 180f;
+        }
+
+        // Alt duvar kontrolü (Prop yukarı bakmalı)
+        if (mx >= 0 && mx < map.GetLength(0) && my - 1 >= 0)
+        {
+            if (map[mx, my - 1] == 'W') return 0f;
+        }
+
+        // Sol duvar kontrolü (Prop sağa bakmalı)
+        if (mx - 1 >= 0 && mx < map.GetLength(0) && my >= 0 && my < map.GetLength(1))
+        {
+            if (map[mx - 1, my] == 'W') return 90f;
+        }
+
+        // Sağ duvar kontrolü (Prop sola bakmalı)
+        if (mx + 1 < map.GetLength(0) && my >= 0 && my < map.GetLength(1))
+        {
+            if (map[mx + 1, my] == 'W') return -90f;
+        }
+
+        return 0f; // Hiçbir duvar bulunamazsa varsayılan rotasyon
     }
 }
