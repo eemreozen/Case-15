@@ -1,0 +1,136 @@
+{
+  "rooms": [
+    {
+      "id": "Resepsiyon",
+      "width": 8,
+      "height": 7,
+      "connectTo": "",
+      "direction": "",
+      "corridorLen": 0
+    },
+    {
+      "id": "Dedektif_Ofisi",
+      "width": 9,
+      "height": 8,
+      "connectTo": "Resepsiyon",
+      "direction": "Up",
+      "corridorLen": 3
+    },
+    {
+      "id": "Sorgu_Odasi",
+      "width": 5,
+      "height": 5,
+      "connectTo": "Resepsiyon",
+      "direction": "Left",
+      "corridorLen": 2
+    },
+    {
+      "id": "Arsiv_Odasi",
+      "width": 6,
+      "height": 9,
+      "connectTo": "Dedektif_Ofisi",
+      "direction": "Right",
+      "corridorLen": 2
+    }
+  ],
+  "roomPropPools": [
+    {
+      "roomID": "Resepsiyon",
+      "propsToSpawn": [
+        {
+          "propName": "Desk_Reception",
+          "isDirectional": true,
+          "placementType": 0,
+          "faceInward": true
+        },
+        {
+          "propName": "Waiting_Chairs",
+          "isDirectional": false,
+          "placementType": 0,
+          "faceInward": true
+        },
+        {
+          "propName": "Plant_Large",
+          "isDirectional": false,
+          "placementType": 2,
+          "faceInward": false
+        }
+      ]
+    },
+    {
+      "roomID": "Dedektif_Ofisi",
+      "propsToSpawn": [
+        {
+          "propName": "Desk_Detective",
+          "isDirectional": false,
+          "placementType": 1,
+          "faceInward": false
+        },
+        {
+          "propName": "Chair_Leather",
+          "isDirectional": false,
+          "placementType": 1,
+          "faceInward": false
+        },
+        {
+          "propName": "Board_Clues",
+          "isDirectional": true,
+          "placementType": 0,
+          "faceInward": true
+        },
+        {
+          "propName": "Bookshelf_Wood",
+          "isDirectional": true,
+          "placementType": 0,
+          "faceInward": true
+        }
+      ]
+    },
+    {
+      "roomID": "Sorgu_Odasi",
+      "propsToSpawn": [
+        {
+          "propName": "Table_Metal",
+          "isDirectional": false,
+          "placementType": 1,
+          "faceInward": false
+        },
+        {
+          "propName": "Mirror_OneWay",
+          "isDirectional": true,
+          "placementType": 0,
+          "faceInward": true
+        },
+        {
+          "propName": "Camera_Tripod",
+          "isDirectional": true,
+          "placementType": 2,
+          "faceInward": true
+        }
+      ]
+    },
+    {
+      "roomID": "Arsiv_Odasi",
+      "propsToSpawn": [
+        {
+          "propName": "Shelves_Evidence",
+          "isDirectional": true,
+          "placementType": 0,
+          "faceInward": true
+        },
+        {
+          "propName": "Shelves_Files",
+          "isDirectional": true,
+          "placementType": 0,
+          "faceInward": true
+        },
+        {
+          "propName": "Box_Stack",
+          "isDirectional": false,
+          "placementType": 2,
+          "faceInward": false
+        }
+      ]
+    }
+  ]
+}
