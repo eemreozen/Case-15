@@ -1,11 +1,4 @@
-<!-- ============================================================
-     HERO / LOGO BANNER
-     Önerilen görsel: assets/banner.png  (1280×400 banner;
-     koyu navy zemin, sunumdaki pixel-art şehir silüetiyle uyumlu)
-============================================================ -->
-<p align="center">
-  <img src="assets/banner.png" alt="Core 15 Architect — Yapay Zekâ Destekli Prosedürel Bölüm ve Hikâye Motoru" width="100%"/>
-</p>
+
 
 <h1 align="center">Core 15 Architect</h1>
 <p align="center"><i>Unity için Yapay Zekâ Destekli Prosedürel Bölüm ve Hikâye Motoru</i></p>
@@ -27,15 +20,8 @@
 
 Core 15 Architect, **Unity** için tasarlanmış yapay zekâ destekli bir bölüm tasarımı ve hikâye üretim sistemidir. **Wave Function Collapse (WFC)** algoritmasıyla **Büyük Dil Modelleri (LLM)** birlikte çalışır; akıllı prosedürel ortamlar, otomatik hikâye entegrasyonu ve dinamik içerik akışı sunar. Kısacası: tasarımcı senaryoyu yazar, motor sahneyi inşa eder.
 
-<!-- ============================================================
-     HERO DEMO GIF
-     Önerilen görsel: assets/demo-hero.gif
-     İçerik: 8-12 sn döngü — kullanıcı GDD yapıştırır,
-     "Üret" butonuna basar, harita karo karo oluşur, ardından
-     ipuçları/objeler doğru odalara yerleşir.
-============================================================ -->
 <p align="center">
-  <img src="assets/demo-hero.gif" alt="Core 15'in bir GDD'den gerçek zamanlı bölüm ürettiği demo" width="85%"/>
+  <img src="2d-map-creating.gif" alt="Core 15'in gerçek zamanlı bölüm ürettiği demo" width="85%"/>
 </p>
 
 ---
@@ -61,14 +47,7 @@ Core 15 Architect, **Unity** için tasarlanmış yapay zekâ destekli bir bölü
 
 ## 🏗️ Mimari Genel Bakış
 
-<!-- ============================================================
-     MİMARİ DİYAGRAM
-     Önerilen görsel: assets/core15-architecture.png
-     İçerik: GDD → LLM → WFC → SceneBuilder akışını gösteren diyagram
-============================================================ -->
-<p align="center">
-  <img src="assets/core15-architecture.png" alt="Core 15 Mimari Diyagramı" width="90%"/>
-</p>
+
 
 Sistem, temiz bir mimari sürdürmek ve Unity sahne hiyerarşisinin gereksiz dolmasını engellemek için **iki ayrı iş akışı** üzerine kuruludur:
 
@@ -80,14 +59,7 @@ Sistem, temiz bir mimari sürdürmek ve Unity sahne hiyerarşisinin gereksiz dol
 - **Wave Function Collapse (WFC)** — Unity hiyerarşisine hiç dokunmadan, matematiksel olarak geçerli bir 2D/3D iskelet ızgarası (`char[,]`) üretir.
 - Tüm karar süreci saf mantıksal düzeyde işler; bu sayede performans ve esneklik en üst seviyede tutulur.
 
-<!-- ============================================================
-     MANTIKSAL AKIŞ DİYAGRAMI
-     Önerilen görsel: assets/flow-logical.png
-     İçerik: GDD ayrıştırma + WFC ızgara çıktısının yan yana diyagramı
-============================================================ -->
-<p align="center">
-  <img src="assets/flow-logical.png" alt="Mantıksal Üretim Akışı" width="80%"/>
-</p>
+
 
 ---
 
@@ -99,15 +71,7 @@ Sistem, temiz bir mimari sürdürmek ve Unity sahne hiyerarşisinin gereksiz dol
   - `90f` → 3D
 - Merkez ofsetlerini ve hiyerarşi düzenini (`Core15_GeneratedLevel`) sahne içinde temiz tutar.
 
-<!-- ============================================================
-     SCENE BUILDER EKRAN GÖRÜNTÜSÜ
-     Önerilen görsel: assets/scene-builder.png
-     İçerik: Unity Editor'de Core15_GeneratedLevel hiyerarşisi ve
-              viewport'ta üretilen 3D sahne
-============================================================ -->
-<p align="center">
-  <img src="assets/scene-builder.png" alt="Mantıksal ızgaranın Unity prefab'larına dönüştürülmesi" width="85%"/>
-</p>
+
 
 > ⚠️ **Not:** Canvas Preview her zaman mantıksal akışta çalışır; sahne inşa edilmeden önce manuel düzenleme yapılabilir.
 
@@ -123,14 +87,10 @@ Sistem, temiz bir mimari sürdürmek ve Unity sahne hiyerarşisinin gereksiz dol
 | 🎨 **AAA Editör Canvas** | 3 sekmeli iş akışı: **Asset Config** · **Design Canvas** · **Export & Story**. |
 | 📐 **Perspektif Bağımsız** | Aynı motordan Top-Down 2D, Side-Scroller 2D ve serbest 3D çıktısı. |
 
-<!-- ============================================================
-     EDİTÖR CANVAS — 3 SEKME GENEL GÖRÜNÜM
-     Önerilen görsel: assets/editor-canvas-tabs.png
-     İçerik: 3 sekmenin yan yana birleştirilmiş ekran görüntüsü
-              (Asset Config | Design Canvas | Export & Story)
-============================================================ -->
 <p align="center">
-  <img src="assets/editor-canvas-tabs.png" alt="Üç sekmeli AAA Editör Canvas" width="100%"/>
+  <img src="asset-config-ui.png" alt="Asset Config" width="32%"/>
+  <img src="desing-canvas.png" alt="Design Canvas" width="32%"/>
+  <img src="export-story-ui.png" alt="Export & Story" width="32%"/>
 </p>
 
 ---
@@ -193,14 +153,7 @@ Assets/Prefabs/
 Assets/Core15_Templates/
 ```
 
-<!-- ============================================================
-     KURULUM / KLASÖR YAPISI EKRAN GÖRÜNTÜSÜ
-     Önerilen görsel: assets/install-structure.png
-     İçerik: Unity Project penceresinde içe aktarılmış klasörler
-============================================================ -->
-<p align="center">
-  <img src="assets/install-structure.png" alt="İçe aktarma sonrası Unity Project penceresi" width="55%"/>
-</p>
+
 
 ### 3. Ortam Değişkenleri
 
@@ -222,13 +175,8 @@ DEBUG_LOGS=True
 - Bir `.txt` veya `.md` dosyası atayın
 - LLM bu dosyayı bağlam olarak kullanacaktır
 
-<!-- ============================================================
-     ASSET CONFIG SEKMESİ EKRAN GÖRÜNTÜSÜ
-     Önerilen görsel: assets/tab-asset-config.png
-     İçerik: GDD yüklenmiş ve prefab havuzu görünür durumdaki sekme
-============================================================ -->
 <p align="center">
-  <img src="assets/tab-asset-config.png" alt="Asset Config sekmesi — GDD bağlama ve prefab havuzu" width="80%"/>
+  <img src="asset-config-ui.png" alt="Asset Config sekmesi" width="80%"/>
 </p>
 
 ---
@@ -257,13 +205,8 @@ Prefab:   Blood_Stain_01
 - Oda boyutu (Genişlik × Yükseklik)
 - Duvar kalınlığı
 
-<!-- ============================================================
-     DESIGN CANVAS EKRAN GÖRÜNTÜSÜ
-     Önerilen görsel: assets/tab-design-canvas.png
-     İçerik: Düzenlenebilir WFC ızgara önizlemesi
-============================================================ -->
 <p align="center">
-  <img src="assets/tab-design-canvas.png" alt="Design Canvas sekmesi — interaktif WFC önizlemesi" width="80%"/>
+  <img src="desing-canvas.png" alt="Design Canvas sekmesi" width="80%"/>
 </p>
 
 ---
@@ -274,13 +217,8 @@ Prefab:   Blood_Stain_01
 - WFC ızgarayı oluşturur
 - Gerekirse manuel olarak düzenleyin
 
-<!-- ============================================================
-     WFC ÜRETİM GIF
-     Önerilen görsel: assets/wfc-generation.gif
-     İçerik: 4-6 sn döngü — WFC algoritmasının karoları çökertmesi
-============================================================ -->
 <p align="center">
-  <img src="assets/wfc-generation.gif" alt="Wave Function Collapse temel harita üretiyor" width="70%"/>
+  <img src="2d-map-creating.gif" alt="Wave Function Collapse harita üretiyor" width="70%"/>
 </p>
 
 ---
@@ -298,13 +236,8 @@ Ardından şu butona tıklayın:
 BUILD TO UNITY SCENE
 ```
 
-<!-- ============================================================
-     EXPORT & STORY SEKMESİ EKRAN GÖRÜNTÜSÜ
-     Önerilen görsel: assets/tab-export-story.png
-     İçerik: Senaryo ağacı + mini-harita + öne çıkmış BUILD butonu
-============================================================ -->
 <p align="center">
-  <img src="assets/tab-export-story.png" alt="Export & Story sekmesi — senaryo ağacı ve sahne inşa tetikleyicisi" width="80%"/>
+  <img src="export-story-ui.png" alt="Export & Story sekmesi" width="80%"/>
 </p>
 
 ---
@@ -329,14 +262,8 @@ Zengin bir tüccarın malikânesi. Yatak odasında bir hırsızlık olayı yaşa
    - Kırık Cam → Yatak Odası Penceresi
    - Çamurlu Ayak İzi → Koridor
 
-<!-- ============================================================
-     ÖRNEK 1 ÇIKTI
-     Önerilen görsel: assets/example-midnight.png
-     İçerik: Üretilmiş malikânenin top-down görüntüsü;
-              ipuçları (cam, ayak izi) işaretlenmiş halde
-============================================================ -->
 <p align="center">
-  <img src="assets/example-midnight.png" alt="'Gece Yarısı Olayı' örneği — ipucu yerleşimi ile birlikte" width="80%"/>
+  <img src="scenario-write.jpeg" alt="Senaryo Üretimi Örneği" width="80%"/>
 </p>
 
 ---
@@ -356,14 +283,7 @@ Yer altı araştırma tesisi. Elektrik kesik, güvenlik bölgesi delinmiş.
    - Devre Dışı Bırakılmış Konsol → Güvenlik Odası
    - Pençe İzleri → Karantina Kapısı
 
-<!-- ============================================================
-     ÖRNEK 2 ÇIKTI
-     Önerilen görsel: assets/example-lab.png
-     İçerik: Karanlık laboratuvarın 3D oyun-içi ekran görüntüsü
-============================================================ -->
-<p align="center">
-  <img src="assets/example-lab.png" alt="'Terk Edilmiş Laboratuvar' örneği — 3D modda" width="80%"/>
-</p>
+
 
 ---
 
@@ -379,15 +299,9 @@ Tasarımcılar Unity'yi açmadan önce senaryolarını web üzerinde prototipley
 - 📤 Unity eklentisine hazır JSON paketi olarak dışa aktarma
 - 👥 Ekip içi inceleme için paylaşılabilir senaryo bağlantıları
 
-<!-- ============================================================
-     WEB PLATFORMU EKRAN GÖRÜNTÜSÜ
-     Önerilen görsel: assets/web-platform.png
-     İçerik: case15.beraeren.com'un tam ekran görüntüsü;
-              solda GDD editörü, sağda canlı harita önizlemesi
-============================================================ -->
 <p align="center">
   <a href="https://case15.beraeren.com">
-    <img src="assets/web-platform.png" alt="Case 15 web platformu — case15.beraeren.com" width="90%"/>
+    <img src="web-main-ui.jpeg" alt="Case 15 web platformu" width="90%"/>
   </a>
 </p>
 
@@ -397,19 +311,18 @@ Tasarımcılar Unity'yi açmadan önce senaryolarını web üzerinde prototipley
 
 ## 📂 Proje Yapısı
 
-```
+```text
 Assets/
-├── Core15/
-│   ├── Editor/
-│   │   ├── Core15ArchitectWindow.cs
-│   │   ├── WFCGenerator.cs
-│   │   └── LLMConnector.cs
-│   ├── Models/
-│   │   ├── PropInstance.cs
-│   │   └── ScenarioTree.cs
-│   └── Resources/
-├── Prefabs/
-└── Core15_Templates/
+├── Editor/
+│   └── Core15ArchitectWindow.cs    (Ana Editör Aracı)
+├── Plugins/
+│   └── DeBroglie/                  (Wave Function Collapse Kütüphanesi)
+├── Prefabs/                        (Proje Prefabları)
+├── Scripts/
+│   ├── DeBroglieGenerator.cs       (WFC Algoritma Yöneticisi)
+│   ├── MapJSONExporter.cs          (JSON Dışa Aktarım Sistemi)
+│   └── Gameplay/                   (Oynanış Mekanikleri)
+└── llm-test.json                   (LLM Senaryo ve Test Çıktıları)
 ```
 
 ---
@@ -449,17 +362,11 @@ BindAIScenario(string gddContext)
 
 ## 🤝 Ekip
 
-<!-- ============================================================
-     EKİP FOTOĞRAFLARI (opsiyonel)
-     Önerilen görsel: assets/team.png  VEYA bireysel avatarlar
-     İçerik: Sunum "Ekibimiz" slaytındaki vesikalık fotoğraflar
-============================================================ -->
-
 | Avatar | İsim | Rol |
 |---|---|---|
-| <img src="assets/avatar-emre.png" width="64"/> | **Emre Özen** | Kurucu / Proje Lideri — Oyun yönetimi ve proje koordinasyonu |
-| <img src="assets/avatar-bera.png" width="64"/> | **Bera Eren Tutkun** | Kurucu / LLM ve AI Uzmanı — Hikâye kurgusu, vaka tasarımı, LLM entegrasyon mimarisi |
-| <img src="assets/avatar-samet.png" width="64"/> | **Samet Yılmaz** | Kurucu / Teknik Geliştirme — Unity, C# OOP mimarisi, PCG ve tilemap sistemleri |
+| 👤 | **Emre Özen** | Kurucu / Proje Lideri — Oyun yönetimi ve proje koordinasyonu |
+| 👤 | **Bera Eren Tutkun** | Kurucu / LLM ve AI Uzmanı — Hikâye kurgusu, vaka tasarımı, LLM entegrasyon mimarisi |
+| 👤 | **Samet Yılmaz** | Kurucu / Teknik Geliştirme — Unity, C# OOP mimarisi, PCG ve tilemap sistemleri |
 
 ---
 
